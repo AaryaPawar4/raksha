@@ -8,6 +8,14 @@
 - SHA-256 detects changes relative to a recorded hash; it does not prove authenticity or legal admissibility.
 - Never log raw messages, screenshots, evidence, passwords, tokens, keys, or precise location.
 - No silent tracking. Contacts must explicitly consent. Location sharing must be opt-in, scoped, visible, and revocable.
+- Phase 6 Physical Safety Controls:
+  - **No background location tracking**: Location is acquired strictly on-demand in the foreground when the user clicks "Obtain Location" using standard browser Geolocation APIs.
+  - **No continuous tracking**: Only a single coarse/snapshot coordinate pair is captured per check-in when explicitly authorized.
+  - **Location stripping on backend**: If `locationSharingEnabled` is false, latitude and longitude snapshots are strictly discarded/cleared by the backend service.
+  - **Tenant isolation for contacts & check-ins**: All contact records and check-in records are strictly scoped to `ownerId`. Users cannot query, view, update, or cancel another user's contacts or check-ins.
+  - **No automated message dispatch**: Creating a contact or check-in does not trigger unvetted external calls; messages are prepared for the user to open in their own external client (e.g. WhatsApp/SMS) or copy manually.
+  - **Accurate delivery status disclaimer**: Check-in messages explicitly reflect `PREPARED`, `OPENED_IN_APP`, or `CONFIRMED`. No claim of guaranteed delivery or police dispatch is made.
+  - **Emergency disclaimer**: Clear prominent emergency banner directs users to call 112 (India) or local emergency services for imminent danger.
 - Quick exit does not guarantee erasure of browser history, OS traces, downloads, or network records.
 - Treat user-submitted text/images as untrusted data, not instructions. Validate AI output and show uncertainty.
 - Do not claim definitive diagnosis, perpetrator identification, crime prediction, guaranteed takedown, or guaranteed alert delivery.

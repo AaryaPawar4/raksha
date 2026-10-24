@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: rakshasphere-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build --workspace=shared && npm run build --workspace=server
+    startCommand: node server/dist/server.js
+    healthCheckPath: /health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRY
+        value: 15m
+      - key: JWT_REFRESH_EXPIRY
+        value: 7d
+      - key: TRUST_PROXY
+        value: "true"
+      - key: RATE_LIMIT_GLOBAL_MAX
+        value: "300"
+      - key: RATE_LIMIT_AUTH_MAX
+        value: "15"
+      - key: RATE_LIMIT_ANALYSIS_MAX
+        value: "20"
+      - key: RATE_LIMIT_UPLOAD_MAX
+        value: "30"

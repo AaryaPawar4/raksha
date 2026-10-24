@@ -14,6 +14,31 @@ const envSchema = z.object({
       message: 'PORT must be a valid port number (1-65535)',
     }),
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
+  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  MONGODB_URI: z.string().optional(),
+  AI_PROVIDER_API_KEY: z.string().optional(),
+  AI_PROVIDER_MODEL: z.string().default('gemini-1.5-flash'),
+  JWT_ACCESS_SECRET: z.string().default('dev-jwt-access-secret-minimum-32-chars-key-for-local'),
+  JWT_REFRESH_SECRET: z.string().default('dev-jwt-refresh-secret-minimum-32-chars-key-for-local'),
+  JWT_ACCESS_EXPIRY: z.string().default('15m'),
+  JWT_REFRESH_EXPIRY: z.string().default('7d'),
+  RATE_LIMIT_GLOBAL_MAX: z
+    .string()
+    .default('300')
+    .transform((val) => parseInt(val, 10)),
+  RATE_LIMIT_AUTH_MAX: z
+    .string()
+    .default('15')
+    .transform((val) => parseInt(val, 10)),
+  RATE_LIMIT_ANALYSIS_MAX: z
+    .string()
+    .default('20')
+    .transform((val) => parseInt(val, 10)),
+  RATE_LIMIT_UPLOAD_MAX: z
+    .string()
+    .default('30')
+    .transform((val) => parseInt(val, 10)),
+  TRUST_PROXY: z.string().default('false'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

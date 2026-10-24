@@ -10,6 +10,12 @@ export function errorHandler(
   // Safe logging: log error message without sensitive payload
   console.error(`[Error] ${err.name}: ${err.message}`);
 
+  // Handle CORS validation errors
+  if (err.message && err.message.startsWith('CORS blocked')) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', err.message));
+    return;
+  }
+
   // Never expose raw stack traces in responses
   res.status(500).json(
     createErrorResponse(

@@ -18,5 +18,15 @@ Record actual correct flags, false positives, missed indicators, unsupported cla
 ## Security cases
 Missing/invalid auth; cross-user access attempts; oversized/invalid uploads; malformed requests; rate limits; secrets absent from logs/repo; tamper detection; AI timeout/malformed JSON; authorization on nested resources.
 
+## Phase 6 Physical Safety Check-In Cases
+- Trusted Contact CRUD and strict cross-tenant isolation (User B cannot read/update/delete User A's contacts).
+- Non-dispatch guarantee: creating a contact never dispatches messages or triggers unprompted network calls.
+- Consent state machine: PENDING on creation; CONSENTED records timestamp; DECLINED clears timestamp.
+- Location privacy: locationSharingEnabled=false completely strips latitude/longitude from stored document.
+- Location validation: locationSharingEnabled=true requires coordinates; coordinates outside -90..90 or -180..180 rejected with 400.
+- Check-in ownership isolation: Bob cannot create check-in with Alice's contact or access/complete Alice's check-in.
+- Delivery lifecycle: PREPARED -> OPENED_IN_APP -> CONFIRMED with clear non-guaranteed delivery disclaimers.
+- Completion and cancellation workflows correctly mark status and record timestamps.
+
 ## Demo reliability
 Seed synthetic data, create reset script, run full demo three times, prepare backup video and fallback if AI API fails.
