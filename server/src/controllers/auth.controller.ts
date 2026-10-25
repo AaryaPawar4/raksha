@@ -5,6 +5,7 @@ import { createSuccessResponse, createErrorResponse } from '../utils/response';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators/auth.validator';
 import { env } from '../config/env';
 import { AuditLogger } from '../utils/auditLogger';
+import { recordActivity } from '../services/activityLog.service';
 
 const REFRESH_COOKIE_NAME = 'raksha_refresh_token';
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -47,6 +48,8 @@ export class AuthController {
         ip: req.ip,
         success: true,
       });
+
+      recordActivity({ ownerId: user.id, eventType: 'AUTH_REGISTER', outcome: 'SUCCESS' });
 
       res.cookie(REFRESH_COOKIE_NAME, refreshToken, getCookieOptions());
       res.status(201).json(
@@ -96,6 +99,8 @@ export class AuthController {
         ip: req.ip,
         success: true,
       });
+
+      recordActivity({ ownerId: user.id, eventType: 'AUTH_LOGIN_SUCCESS', outcome: 'SUCCESS' });
 
       res.cookie(REFRESH_COOKIE_NAME, refreshToken, getCookieOptions());
       res.status(200).json(
@@ -213,6 +218,53 @@ export class AuthController {
         ip: req.ip,
         success: false,
       });
+      if (error instanceof ServiceError) {
+        res.status(error.statusCode).json(createErrorResponse(error.code, error.message));
+        return;
+      }
+      next(error);
+    }
+  }
+
+  public static async requestEmailVerification(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json(createErrorResponse('UNAUTHENTICATED', 'User identity required.'));
+        return;
+      }
+
+      const result = await AuthService.requestEmailVerification(userId);
+      res.status(200).json(createSuccessResponse(result));
+    } catch (error) {
+      if (error instanceof ServiceError) {
+        res.status(error.statusCode).json(createErrorResponse(error.code, error.message));
+        return;
+      }
+      next(error);
+    }
+  }
+
+  public static async confirmEmailVerification(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json(createErrorResponse('UNAUTHENTICATED', 'User identity required.'));
+        return;
+      }
+
+      const token = req.body?.token;
+      const result = await AuthService.confirmEmailVerification(userId, token);
+      res.status(200).json(createSuccessResponse(result));
+    } catch (error) {
       if (error instanceof ServiceError) {
         res.status(error.statusCode).json(createErrorResponse(error.code, error.message));
         return;

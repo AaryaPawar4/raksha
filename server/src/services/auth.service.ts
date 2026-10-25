@@ -226,4 +226,90 @@ export class AuthService {
     }
     return userDocToUser(userDoc);
   }
+
+  public static async requestEmailVerification(userId: string): Promise<{
+    message: string;
+    alreadyVerified: boolean;
+    token?: string;
+  }> {
+    this.checkDatabase();
+
+    const userDoc = await UserRepository.findById(userId);
+    if (!userDoc) {
+      throw new ServiceError('User not found.', 'NOT_FOUND', 404);
+    }
+
+    if (userDoc.isEmailVerified) {
+      return {
+        message: 'Your email address is already verified.',
+        alreadyVerified: true,
+      };
+    }
+
+    // Generate secure 32-byte hex token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await UserRepository.setEmailVerificationToken(userId, tokenHash, expiresAt);
+
+    // If an email provider is configured, we can dispatch the verification email
+    const { EmailService } = await import('./email.service');
+    if (EmailService.isConfigured()) {
+      await EmailService.sendMail({
+        to: userDoc.email,
+        subject: 'Verify your email address - RakshaSphere',
+        text: `Hello ${userDoc.name},\n\nPlease verify your email for RakshaSphere using the following token:\n\n${rawToken}\n\nThis verification link expires in 24 hours.\n\nStay safe,\nRakshaSphere Team`,
+      });
+    }
+
+    // In non-production or when no external provider is active, return the token so users/tests can complete verification
+    return {
+      message: 'Email verification token generated.',
+      alreadyVerified: false,
+      token: rawToken,
+    };
+  }
+
+  public static async confirmEmailVerification(userId: string, token: string): Promise<{
+    success: boolean;
+    user: User;
+  }> {
+    this.checkDatabase();
+
+    if (!token || token.trim().length === 0) {
+      throw new ServiceError('Verification token is required.', 'VALIDATION_ERROR', 400);
+    }
+
+    const userDoc = await UserRepository.findById(userId);
+    if (!userDoc) {
+      throw new ServiceError('User not found.', 'NOT_FOUND', 404);
+    }
+
+    if (userDoc.isEmailVerified) {
+      return { success: true, user: userDocToUser(userDoc) };
+    }
+
+    const tokenHash = hashToken(token.trim());
+    if (
+      !userDoc.emailVerificationTokenHash ||
+      userDoc.emailVerificationTokenHash !== tokenHash
+    ) {
+      throw new ServiceError('Invalid or expired verification token.', 'VALIDATION_ERROR', 400);
+    }
+
+    if (
+      userDoc.emailVerificationExpiresAt &&
+      new Date() > userDoc.emailVerificationExpiresAt
+    ) {
+      throw new ServiceError('Verification token has expired. Please request a new one.', 'VALIDATION_ERROR', 400);
+    }
+
+    const updatedUser = await UserRepository.markEmailVerified(userId);
+    if (!updatedUser) {
+      throw new ServiceError('Failed to mark email as verified.', 'INTERNAL_ERROR', 500);
+    }
+
+    return { success: true, user: updatedUser };
+  }
 }

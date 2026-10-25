@@ -15,6 +15,10 @@ export interface CreateCheckInData {
   longitudeSnapshot?: number;
   dueAt?: Date;
   deliveryDisclaimer: string;
+  channel?: 'MANUAL_APP_INTENT' | 'AUTOMATED_EMAIL';
+  emailDeliveryStatus?: 'PENDING' | 'ACCEPTED_BY_PROVIDER' | 'DELIVERED' | 'FAILED' | 'UNAVAILABLE';
+  recipientEmail?: string;
+  clientNonce?: string;
 }
 
 export class CheckInRepository {
@@ -32,7 +36,11 @@ export class CheckInRepository {
       longitudeSnapshot: data.longitudeSnapshot,
       dueAt: data.dueAt,
       deliveryDisclaimer: data.deliveryDisclaimer,
-      deliveryState: 'PREPARED',
+      channel: data.channel ?? 'MANUAL_APP_INTENT',
+      emailDeliveryStatus: data.emailDeliveryStatus,
+      recipientEmail: data.recipientEmail,
+      clientNonce: data.clientNonce,
+      deliveryState: data.channel === 'AUTOMATED_EMAIL' ? 'CONFIRMED' : 'PREPARED',
       status: 'ACTIVE',
     });
     return toCheckIn(doc);

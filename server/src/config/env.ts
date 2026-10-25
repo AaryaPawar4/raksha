@@ -1,8 +1,23 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
 import { z } from 'zod';
 
-// Load environment variables from .env file
-dotenv.config();
+// Load environment variables from standard monorepo locations
+// (supports running from repository root, server workspace directory, or production bundle)
+const envCandidatePaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), '../.env'),
+  path.resolve(__dirname, '../../..', '.env'),
+  path.resolve(__dirname, '../..', '.env'),
+];
+
+for (const envFile of envCandidatePaths) {
+  if (fs.existsSync(envFile)) {
+    dotenv.config({ path: envFile });
+  }
+}
+dotenv.config(); // standard fallback
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -39,6 +54,19 @@ const envSchema = z.object({
     .default('30')
     .transform((val) => parseInt(val, 10)),
   TRUST_PROXY: z.string().default('false'),
+  EMAIL_PROVIDER: z.enum(['none', 'smtp', 'mock']).default('none'),
+  EMAIL_FROM: z.string().default('no-reply@rakshasphere.org'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z
+    .string()
+    .default('587')
+    .transform((val) => parseInt(val, 10)),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((val) => val === 'true'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

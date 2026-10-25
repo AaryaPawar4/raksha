@@ -70,7 +70,8 @@ export async function connectDatabase(uri?: string): Promise<boolean> {
     return true;
   } catch (error) {
     isConnecting = false;
-    const errorMsg = error instanceof Error ? error.message : 'Unknown connection error';
+    const rawErrorMsg = error instanceof Error ? error.message : 'Unknown connection error';
+    const errorMsg = maskMongoUri(rawErrorMsg);
     console.error(`❌ Failed to connect to MongoDB: ${errorMsg}`);
 
     // Production fail-fast check

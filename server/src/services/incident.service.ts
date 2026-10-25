@@ -1,10 +1,12 @@
 import { IncidentRepository } from '../repositories/incident.repository';
 import { isDatabaseConnected } from '../config/db';
+import { AuditLogger } from '../utils/auditLogger';
 import {
   Incident,
   CreateIncidentDTO,
   IncidentListQuery,
   PaginatedResult,
+  DeleteIncidentResult,
 } from '@rakshasphere/shared';
 
 export class ServiceError extends Error {
@@ -74,5 +76,42 @@ export class IncidentService {
   ): Promise<PaginatedResult<Incident>> {
     this.checkDatabase();
     return IncidentRepository.findByOwner(ownerId, query);
+  }
+
+  public static async deleteIncident(
+    id: string,
+    ownerId: string
+  ): Promise<DeleteIncidentResult> {
+    this.checkDatabase();
+
+    const incident = await IncidentRepository.findByIdAndOwner(id, ownerId);
+    if (!incident) {
+      throw new ServiceError(
+        'Incident not found or you do not have permission to delete it.',
+        'NOT_FOUND',
+        404
+      );
+    }
+
+    const result = await IncidentRepository.deleteByIdAndOwner(id, ownerId);
+
+    AuditLogger.log({
+      eventType: 'INCIDENT_DELETED',
+      userId: ownerId,
+      resourceId: id,
+      success: true,
+      metadata: {
+        removedLinksCount: result.removedLinksCount,
+        retainedEvidenceCount: result.retainedEvidenceCount,
+      },
+    });
+
+    return {
+      deleted: true,
+      id,
+      removedLinksCount: result.removedLinksCount,
+      retainedEvidenceCount: result.retainedEvidenceCount,
+      policy: 'EVIDENCE_RETAINED_AND_DETACHED',
+    };
   }
 }

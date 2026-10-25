@@ -23,11 +23,24 @@ import {
   ConsentStatus,
   CheckIn,
   CreateCheckInDTO,
+  SendEmailCheckInDTO,
+  EmailProviderStatus,
+  RequestEmailVerificationResponse,
+  ConfirmEmailVerificationDTO,
   User,
   AuthResponse,
   RegisterDTO,
   LoginDTO,
   ReadinessCheckData,
+  DeleteIncidentResult,
+  AnalyticsSummaryData,
+  AnalyticsSummaryQuery,
+  MapPointsResponse,
+  ExportCasePdfOptions,
+  ExportIncidentsCsvQuery,
+  ExportCasesCsvQuery,
+  ActivityLogQuery,
+  PaginatedActivityLog,
 } from '@rakshasphere/shared';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
@@ -46,19 +59,60 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+interface CustomRequestOptions extends RequestInit {
+  _isRetry?: boolean;
+}
+
+let refreshPromise: Promise<string | null> | null = null;
+
+async function silentRefreshToken(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const json: ApiResponse<AuthResponse> = await res.json();
+        if (json.success && json.data?.accessToken) {
+          sessionStorage.setItem('access_token', json.data.accessToken);
+          return json.data.accessToken;
+        }
+        sessionStorage.removeItem('access_token');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('raksha:unauthorized'));
+        }
+        return null;
+      } catch {
+        sessionStorage.removeItem('access_token');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('raksha:unauthorized'));
+        }
+        return null;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
+async function request<T>(endpoint: string, options?: CustomRequestOptions): Promise<T> {
   const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
   const defaultHeaders: HeadersInit = { 'Content-Type': 'application/json' };
 
-  // If authenticated with real JWT, send Bearer token; else fallback to demo header in dev
   const authHeaders: Record<string, string> = {};
   const accessToken = sessionStorage.getItem('access_token');
   if (accessToken) {
     authHeaders['Authorization'] = `Bearer ${accessToken}`;
-  } else {
-    const demoUserId = sessionStorage.getItem('demo_user_id') || 'demo-user-default';
-    authHeaders['x-demo-user-id'] = demoUserId;
   }
+
+  const isAuthRoute =
+    endpoint.includes('/api/v1/auth/login') ||
+    endpoint.includes('/api/v1/auth/register') ||
+    endpoint.includes('/api/v1/auth/refresh') ||
+    endpoint.includes('/api/v1/auth/logout');
 
   try {
     const response = await fetch(url, {
@@ -70,9 +124,22 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const body: ApiResponse<T> = await response.json();
 
     if (!body.success) {
-      // If unauthorized, clear invalid token
+      // If 401 on a protected non-auth route and not already a retry, attempt single silent refresh
+      if (response.status === 401 && !isAuthRoute && !options?._isRetry) {
+        const newToken = await silentRefreshToken();
+        if (newToken) {
+          return request<T>(endpoint, {
+            ...options,
+            _isRetry: true,
+          });
+        }
+      }
+
       if (response.status === 401 && accessToken) {
         sessionStorage.removeItem('access_token');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('raksha:unauthorized'));
+        }
       }
 
       throw new ApiError(
@@ -91,6 +158,76 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
       0
     );
   }
+}
+
+async function requestBlob(
+  endpoint: string,
+  options?: CustomRequestOptions
+): Promise<{ blob: Blob; filename?: string }> {
+  const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const defaultHeaders: HeadersInit = { 'Content-Type': 'application/json' };
+
+  const authHeaders: Record<string, string> = {};
+  const accessToken = sessionStorage.getItem('access_token');
+  if (accessToken) {
+    authHeaders['Authorization'] = `Bearer ${accessToken}`;
+  }
+
+  const response = await fetch(url, {
+    credentials: 'include',
+    ...options,
+    headers: { ...defaultHeaders, ...authHeaders, ...options?.headers },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401 && !options?._isRetry) {
+      const newToken = await silentRefreshToken();
+      if (newToken) {
+        return requestBlob(endpoint, { ...options, _isRetry: true });
+      }
+    }
+
+    try {
+      const errBody = await response.json();
+      throw new ApiError(
+        errBody.error?.message || 'Download failed',
+        errBody.error?.code || 'DOWNLOAD_ERROR',
+        response.status,
+        errBody.error?.details
+      );
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      throw new ApiError('Download failed', 'DOWNLOAD_ERROR', response.status);
+    }
+  }
+
+  let filename: string | undefined;
+  const disposition = response.headers.get('content-disposition');
+  if (disposition) {
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = filenameMatch[1].trim();
+    }
+  }
+
+  const blob = await response.blob();
+  return { blob, filename };
+}
+
+export function saveBlobAsFile(
+  blob: Blob,
+  fallbackFilename: string,
+  filenameHeader?: string
+): void {
+  const filename = filenameHeader || fallbackFilename;
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.URL.revokeObjectURL(url);
 }
 
 export const apiClient = {
@@ -147,6 +284,15 @@ export const apiClient = {
       }
     },
     me: () => request<User>('/api/v1/auth/me'),
+    requestEmailVerification: () =>
+      request<RequestEmailVerificationResponse>('/api/v1/auth/verify-email/request', {
+        method: 'POST',
+      }),
+    confirmEmailVerification: (data: ConfirmEmailVerificationDTO) =>
+      request<{ success: boolean; user: User }>('/api/v1/auth/verify-email/confirm', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
 
   incidents: {
@@ -169,6 +315,20 @@ export const apiClient = {
         method: 'POST',
         body: JSON.stringify(options),
       }),
+    delete: (id: string) =>
+      request<DeleteIncidentResult>(`/api/v1/incidents/${id}`, {
+        method: 'DELETE',
+      }),
+    exportCsv: (query?: ExportIncidentsCsvQuery) => {
+      const params = new URLSearchParams();
+      if (query?.startDate) params.set('startDate', query.startDate);
+      if (query?.endDate) params.set('endDate', query.endDate);
+      if (query?.status) params.set('status', query.status);
+      if (query?.incidentType) params.set('incidentType', query.incidentType);
+      if (query?.platform) params.set('platform', query.platform);
+      const qs = params.toString();
+      return requestBlob(`/api/v1/incidents/export/csv${qs ? `?${qs}` : ''}`);
+    },
   },
 
   threatLinks: {
@@ -222,6 +382,18 @@ export const apiClient = {
       request<{ deleted: boolean; id: string }>(`/api/v1/cases/${id}`, {
         method: 'DELETE',
       }),
+    exportPdf: (id: string, options?: ExportCasePdfOptions) =>
+      requestBlob(`/api/v1/cases/${id}/export/pdf`, {
+        method: 'POST',
+        body: JSON.stringify(options || {}),
+      }),
+    exportCsv: (query?: ExportCasesCsvQuery) => {
+      const params = new URLSearchParams();
+      if (query?.status) params.set('status', query.status);
+      if (query?.reportingChannel) params.set('reportingChannel', query.reportingChannel);
+      const qs = params.toString();
+      return requestBlob(`/api/v1/cases/export/csv${qs ? `?${qs}` : ''}`);
+    },
   },
 
   contacts: {
@@ -268,5 +440,40 @@ export const apiClient = {
       request<CheckIn>(`/api/v1/check-ins/${id}/acknowledge-delivery`, {
         method: 'POST',
       }),
+    getEmailProviderStatus: () =>
+      request<EmailProviderStatus>('/api/v1/check-ins/email/status'),
+    sendEmail: (data: SendEmailCheckInDTO) =>
+      request<CheckIn>('/api/v1/check-ins/email', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+  },
+
+  analytics: {
+    getSummary: (query?: AnalyticsSummaryQuery) => {
+      const params = new URLSearchParams();
+      if (query?.startDate) params.set('startDate', query.startDate);
+      if (query?.endDate) params.set('endDate', query.endDate);
+      if (query?.platform) params.set('platform', query.platform);
+      if (query?.incidentType) params.set('incidentType', query.incidentType);
+      const qs = params.toString();
+      return request<AnalyticsSummaryData>(`/api/v1/analytics/summary${qs ? `?${qs}` : ''}`);
+    },
+    getMapPoints: (fuzzLocation: boolean = true) =>
+      request<MapPointsResponse>(`/api/v1/analytics/map-points?fuzzLocation=${fuzzLocation}`),
+  },
+
+  activity: {
+    list: (query?: ActivityLogQuery) => {
+      const params = new URLSearchParams();
+      if (query?.eventType) params.set('eventType', query.eventType);
+      if (query?.outcome) params.set('outcome', query.outcome);
+      if (query?.startDate) params.set('startDate', query.startDate);
+      if (query?.endDate) params.set('endDate', query.endDate);
+      if (query?.page) params.set('page', String(query.page));
+      if (query?.limit) params.set('limit', String(query.limit));
+      const qs = params.toString();
+      return request<PaginatedActivityLog>(`/api/v1/activity${qs ? `?${qs}` : ''}`);
+    },
   },
 };

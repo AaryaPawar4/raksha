@@ -10,6 +10,12 @@ router.use(authMiddleware);
 // POST /api/v1/check-ins — Create a new check-in
 router.post('/', CheckInController.create);
 
+// GET /api/v1/check-ins/email/status — Check if email provider is configured
+router.get('/email/status', CheckInController.getEmailStatus);
+
+// POST /api/v1/check-ins/email — Send automated email check-in
+router.post('/email', CheckInController.sendEmail);
+
 // GET /api/v1/check-ins — List all check-ins for current user
 router.get('/', CheckInController.list);
 

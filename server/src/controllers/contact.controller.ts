@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ContactService } from '../services/contact.service';
 import { ServiceError } from '../services/incident.service';
 import { createSuccessResponse, createErrorResponse } from '../utils/response';
+import { recordActivity } from '../services/activityLog.service';
 import {
   createContactSchema,
   updateContactSchema,
@@ -34,6 +35,7 @@ export class ContactController {
       }
 
       const contact = await ContactService.createContact(ownerId, parseResult.data);
+      recordActivity({ ownerId, eventType: 'CONTACT_CREATED', outcome: 'SUCCESS', resourceId: contact.id, resourceLabel: contact.name });
       res.status(201).json(createSuccessResponse(contact));
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -117,6 +119,7 @@ export class ContactController {
 
       const { id } = req.params;
       const contact = await ContactService.updateContact(ownerId, id, parseResult.data);
+      recordActivity({ ownerId, eventType: 'CONTACT_UPDATED', outcome: 'SUCCESS', resourceId: contact.id, resourceLabel: contact.name });
       res.status(200).json(createSuccessResponse(contact));
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -177,6 +180,7 @@ export class ContactController {
 
       const { id } = req.params;
       await ContactService.deleteContact(ownerId, id);
+      recordActivity({ ownerId, eventType: 'CONTACT_DELETED', outcome: 'SUCCESS', resourceId: id });
       res.status(200).json(createSuccessResponse({ deleted: true }));
     } catch (error) {
       if (error instanceof ServiceError) {

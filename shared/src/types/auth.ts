@@ -2,8 +2,19 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  isEmailVerified: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RequestEmailVerificationResponse {
+  message: string;
+  alreadyVerified: boolean;
+  token?: string;
+}
+
+export interface ConfirmEmailVerificationDTO {
+  token: string;
 }
 
 export interface AuthTokens {

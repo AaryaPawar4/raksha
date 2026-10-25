@@ -14,6 +14,9 @@ export interface IUserDocument extends Document {
   email: string;
   passwordHash: string;
   name: string;
+  isEmailVerified: boolean;
+  emailVerificationTokenHash?: string;
+  emailVerificationExpiresAt?: Date;
   refreshTokens: IRefreshTokenItem[];
   createdAt: Date;
   updatedAt: Date;
@@ -49,6 +52,16 @@ const UserSchema = new Schema<IUserDocument>(
       trim: true,
       maxlength: 100,
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationTokenHash: {
+      type: String,
+    },
+    emailVerificationExpiresAt: {
+      type: Date,
+    },
     refreshTokens: [RefreshTokenSchema],
   },
   {
@@ -61,6 +74,7 @@ export function userDocToUser(doc: IUserDocument): User {
     id: doc._id.toString(),
     email: doc.email,
     name: doc.name,
+    isEmailVerified: Boolean(doc.isEmailVerified),
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };

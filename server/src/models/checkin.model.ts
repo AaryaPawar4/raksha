@@ -1,5 +1,5 @@
 import { Schema, model, Document, Types } from 'mongoose';
-import { CheckInStatus, DeliveryState, CheckIn } from '@rakshasphere/shared';
+import { CheckInStatus, DeliveryState, CheckIn, CheckInChannel, EmailDeliveryStatus } from '@rakshasphere/shared';
 
 export interface ICheckInDocument extends Document {
   _id: Types.ObjectId;
@@ -16,6 +16,10 @@ export interface ICheckInDocument extends Document {
   cancelledAt?: Date;
   deliveryState: DeliveryState;
   deliveryDisclaimer: string;
+  channel?: CheckInChannel;
+  emailDeliveryStatus?: EmailDeliveryStatus;
+  recipientEmail?: string;
+  clientNonce?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -80,6 +84,23 @@ const CheckInSchema = new Schema<ICheckInDocument>(
       type: String,
       required: true,
     },
+    channel: {
+      type: String,
+      enum: ['MANUAL_APP_INTENT', 'AUTOMATED_EMAIL'],
+      default: 'MANUAL_APP_INTENT',
+    },
+    emailDeliveryStatus: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED_BY_PROVIDER', 'DELIVERED', 'FAILED', 'UNAVAILABLE'],
+    },
+    recipientEmail: {
+      type: String,
+      trim: true,
+    },
+    clientNonce: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: true,
@@ -104,6 +125,9 @@ export function checkinDocToCheckIn(doc: ICheckInDocument): CheckIn {
     cancelledAt: doc.cancelledAt?.toISOString(),
     deliveryState: doc.deliveryState,
     deliveryDisclaimer: doc.deliveryDisclaimer,
+    channel: doc.channel,
+    emailDeliveryStatus: doc.emailDeliveryStatus,
+    recipientEmail: doc.recipientEmail,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };

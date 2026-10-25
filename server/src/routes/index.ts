@@ -7,6 +7,8 @@ import caseRoutes from './case.routes';
 import contactRoutes from './contact.routes';
 import checkinRoutes from './checkin.routes';
 import authRoutes from './auth.routes';
+import analyticsRoutes from './analytics.routes';
+import activityLogRoutes from './activityLog.routes';
 import { authRateLimiter } from '../middleware/security.middleware';
 
 const router = Router();
@@ -16,6 +18,12 @@ router.use('/health', healthRoutes);
 
 // Phase 7 Authentication endpoints: /api/v1/auth
 router.use('/api/v1/auth', authRateLimiter, authRoutes);
+
+// Phase C Analytics endpoints: /api/v1/analytics
+router.use('/api/v1/analytics', analyticsRoutes);
+
+// Phase E Activity Log endpoints: /api/v1/activity
+router.use('/api/v1/activity', activityLogRoutes);
 
 // Phase 1 API endpoints: /api/v1/incidents
 router.use('/api/v1/incidents', incidentRoutes);

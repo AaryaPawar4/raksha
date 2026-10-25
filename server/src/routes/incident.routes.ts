@@ -25,7 +25,13 @@ router.post('/:id/analyze', analysisRateLimiter, AnalysisController.analyze);
 // GET /api/v1/incidents/:id/report-draft — Phase 5: Structured complaint draft
 router.get('/:id/report-draft', IncidentController.getReportDraft);
 
+// GET /api/v1/incidents/export/csv — Phase D: Authenticated user-scoped CSV export with formula injection defense
+router.get('/export/csv', IncidentController.exportCsv);
+
 // GET /api/v1/incidents/:id — Retrieve single incident owned by current user
 router.get('/:id', IncidentController.getById);
+
+// DELETE /api/v1/incidents/:id — Delete incident owned by current user
+router.delete('/:id', IncidentController.delete);
 
 export default router;

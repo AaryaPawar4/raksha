@@ -83,3 +83,31 @@ export const createCheckInSchema = z.object({
     )
     .optional(),
 });
+
+export const sendEmailCheckInSchema = z
+  .object({
+    recipientType: z.enum(['SELF', 'TRUSTED_CONTACT'], {
+      required_error: 'recipientType is required',
+      invalid_type_error: "recipientType must be 'SELF' or 'TRUSTED_CONTACT'",
+    }),
+    contactId: z.string().trim().optional(),
+    message: z
+      .string({ required_error: 'message is required' })
+      .trim()
+      .min(1, 'message cannot be empty')
+      .max(1000, 'message cannot exceed 1000 characters'),
+    clientNonce: z.string().trim().max(100).optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.recipientType === 'TRUSTED_CONTACT') {
+        return Boolean(data.contactId && data.contactId.length > 0);
+      }
+      return true;
+    },
+    {
+      message: 'contactId is required when recipientType is TRUSTED_CONTACT',
+      path: ['contactId'],
+    }
+  );
+

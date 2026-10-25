@@ -4,6 +4,7 @@ import { ServiceError } from '../services/incident.service';
 import { createSuccessResponse, createErrorResponse } from '../utils/response';
 import { uploadEvidenceSchema } from '../validators/vault.validator';
 import { AuditLogger } from '../utils/auditLogger';
+import { recordActivity } from '../services/activityLog.service';
 
 export class VaultController {
   public static async upload(
@@ -49,6 +50,15 @@ export class VaultController {
           mimeType: item.mimeType,
           size: item.size,
         },
+      });
+
+      recordActivity({
+        ownerId,
+        eventType: 'VAULT_UPLOAD',
+        outcome: 'SUCCESS',
+        resourceId: item.id,
+        resourceLabel: item.filename,
+        safeMetadata: { mimeType: item.mimeType, size: item.size },
       });
 
       res.status(201).json(createSuccessResponse(item));
@@ -168,6 +178,14 @@ export class VaultController {
         },
       });
 
+      recordActivity({
+        ownerId,
+        eventType: 'VAULT_VERIFY',
+        outcome: result.integrityStatus === 'VERIFIED' ? 'SUCCESS' : 'FAILURE',
+        resourceId: id,
+        safeMetadata: { integrityStatus: result.integrityStatus },
+      });
+
       res.status(200).json(createSuccessResponse(result));
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -211,6 +229,8 @@ export class VaultController {
         ip: req.ip,
         success: true,
       });
+
+      recordActivity({ ownerId, eventType: 'VAULT_DELETE', outcome: 'SUCCESS', resourceId: id });
 
       res.status(200).json(createSuccessResponse({ deleted: true, id }));
     } catch (error) {

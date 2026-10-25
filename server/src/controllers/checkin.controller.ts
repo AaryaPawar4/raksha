@@ -2,8 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import { CheckInService } from '../services/checkin.service';
 import { ServiceError } from '../services/incident.service';
 import { createSuccessResponse, createErrorResponse } from '../utils/response';
-import { createCheckInSchema } from '../validators/checkin.validator';
+import { createCheckInSchema, sendEmailCheckInSchema } from '../validators/checkin.validator';
 import { AuditLogger } from '../utils/auditLogger';
+import { recordActivity } from '../services/activityLog.service';
 
 export class CheckInController {
   public static async create(
@@ -42,6 +43,15 @@ export class CheckInController {
           locationSharingEnabled: checkIn.locationSharingEnabled,
           deliveryState: checkIn.deliveryState,
         },
+      });
+
+      recordActivity({
+        ownerId,
+        eventType: 'CHECKIN_CREATED',
+        outcome: 'SUCCESS',
+        resourceId: checkIn.id,
+        resourceLabel: `Check-in with ${checkIn.contactName}`,
+        safeMetadata: { locationSharingEnabled: checkIn.locationSharingEnabled },
       });
 
       res.status(201).json(createSuccessResponse(checkIn));
@@ -124,6 +134,8 @@ export class CheckInController {
         success: true,
       });
 
+      recordActivity({ ownerId, eventType: 'CHECKIN_COMPLETED', outcome: 'SUCCESS', resourceId: checkIn.id });
+
       res.status(200).json(createSuccessResponse(checkIn));
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -157,6 +169,8 @@ export class CheckInController {
         success: true,
       });
 
+      recordActivity({ ownerId, eventType: 'CHECKIN_CANCELLED', outcome: 'SUCCESS', resourceId: checkIn.id });
+
       res.status(200).json(createSuccessResponse(checkIn));
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -187,6 +201,68 @@ export class CheckInController {
         res.status(error.statusCode).json(createErrorResponse(error.code, error.message));
         return;
       }
+      next(error);
+    }
+  }
+
+  public static async sendEmail(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const ownerId = req.user?.id;
+      if (!ownerId) {
+        res.status(401).json(createErrorResponse('UNAUTHENTICATED', 'User identity required.'));
+        return;
+      }
+
+      const parseResult = sendEmailCheckInSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        const errorDetails = parseResult.error.errors.map((e) => ({
+          field: e.path.join('.'),
+          message: e.message,
+        }));
+        res
+          .status(400)
+          .json(createErrorResponse('VALIDATION_ERROR', 'Invalid email check-in payload.', errorDetails));
+        return;
+      }
+
+      const checkIn = await CheckInService.sendEmailCheckIn(ownerId, parseResult.data);
+
+      AuditLogger.log({
+        eventType: 'CHECKIN_CREATED',
+        userId: ownerId,
+        resourceId: checkIn.id,
+        ip: req.ip,
+        success: true,
+        metadata: {
+          channel: 'AUTOMATED_EMAIL',
+          recipientType: parseResult.data.recipientType,
+          emailDeliveryStatus: checkIn.emailDeliveryStatus ?? 'PENDING',
+        },
+      });
+
+      res.status(201).json(createSuccessResponse(checkIn));
+    } catch (error) {
+      if (error instanceof ServiceError) {
+        res.status(error.statusCode).json(createErrorResponse(error.code, error.message));
+        return;
+      }
+      next(error);
+    }
+  }
+
+  public static async getEmailStatus(
+    _req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const status = CheckInService.getEmailProviderStatus();
+      res.status(200).json(createSuccessResponse(status));
+    } catch (error) {
       next(error);
     }
   }

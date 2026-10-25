@@ -13,6 +13,12 @@ router.post('/', CaseController.create);
 // GET /api/v1/cases — List user's tracked cases (optional ?incidentId=...)
 router.get('/', CaseController.list);
 
+// GET /api/v1/cases/export/csv — Phase D: CSV export of tracked cases
+router.get('/export/csv', CaseController.exportCsv);
+
+// POST /api/v1/cases/:id/export/pdf — Phase D: Secure PDF case dossier export
+router.post('/:id/export/pdf', CaseController.exportPdf);
+
 // GET /api/v1/cases/:id — Retrieve single tracked case
 router.get('/:id', CaseController.getById);
 

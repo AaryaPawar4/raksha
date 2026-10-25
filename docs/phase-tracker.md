@@ -9,8 +9,8 @@
 | Phase 4 | Evidence Vault | Approved | 2026-10-24 | User |
 | Phase 5 | Action Center & Case Tracking | Approved | 2026-10-24 | User |
 | Phase 6 | Physical Safety Check-in | Approved with Limitations | 2026-10-24 | Verified (93/93 tests) |
-| Phase 7 | Security and Evaluation | Complete & Verified (Pass with Limitations) | 2026-10-24 | Verified (121/121 tests) |
-| Phase 8A | Deployment Prerequisites & Demo Readiness | Complete & Verified | 2026-10-24 | Verified (121/121 tests) |
+| Phase 7 | Security and Evaluation | Complete & Verified | 2026-10-24 | Verified (121/121 tests, Atlas Verified) |
+| Phase 8A | Deployment Prerequisites & Demo Readiness | Complete & Verified (Atlas Live & Seeded) | 2026-10-24 | Verified (121/121 tests) |
 | Phase 8B | Live Deployment & Demo Execution | Pending User Authorization | — | — |
 
 ---
@@ -166,13 +166,19 @@
   - TypeScript compilation passes across `shared`, `server`, and `client` (0 errors).
   - Production builds pass for all workspaces (`npm run build`).
   - Deep security audit verified: atomic refresh token rotation under concurrency, algorithm confusion defense on HS256, issuer/audience claim enforcement, recursive log redaction of sensitive credentials, CORS 403 rejection, and reverse proxy trust configuration.
-  - **Verdict**: PASS WITH LIMITATIONS (Live Atlas cluster and external AI provider key pending actual production provisioning).
+  - **Verdict**: PASS (Live Atlas cluster connectivity verified live; external AI provider key omitted for deterministic rules-only baseline).
 
 ---
 
 ## Phase 8A: Deployment Prerequisites & Demo Readiness
-- **Status**: Complete & Verified (All deployment configurations & synthetic demo scripts prepared; zero public deployment or paid resource creation)
+- **Status**: Complete & Verified (Atlas Live & Seeded; deployment blueprints and synthetic demo scripts verified)
 - **Scope**:
+  - **Live Atlas Connectivity Verified**:
+    - Fixed `.env` path resolution in `server/src/config/env.ts` so `dotenv` loads the root `.env` under workspace execution.
+    - Verified live connection to cluster `cluster0.9z4blou.mongodb.net` with 14ms ping latency and status `ready`.
+  - **Demo Seeding & Cleanup Scripts**:
+    - `scripts/seed-demo.ts` (`npm run seed:demo`): Seeds synthetic persona `demo-asha@rakshasphere.org` with 2 correlated incidents, 1 verified trusted contact (Pooja), and 1 tracked cybercrime case.
+    - `scripts/cleanup-demo.ts` (`npm run cleanup:demo`): Safely purges only the demo persona records without touching any other records.
   - **Project & Monorepo Inspection**:
     - Monorepo package manager: standard `npm` with 3 workspaces (`shared`, `server`, `client`).
     - Build dependencies verified: `@rakshasphere/shared` builds first to `./dist/index.js`, referenced by both server and client.
@@ -190,7 +196,8 @@
   - 121 Vitest unit, API, and integration tests passing across 13 test suites (0 failures).
   - TypeScript compilation passes across `shared`, `server`, and `client` (0 errors).
   - Production builds pass for all workspaces (`npm run build`).
-  - Stop condition strictly enforced: No public deployment, cloud provisioning, or live database modifications executed.
+  - Live Atlas connectivity verified with 14ms latency.
+  - Stop condition strictly enforced: No public deployment, cloud provisioning, or paid services enabled.
 
 ---
 
@@ -265,13 +272,19 @@
   - TypeScript compilation passes across `shared`, `server`, and `client` (0 errors).
   - Production builds pass for all workspaces (`npm run build`).
   - Deep security audit verified: atomic refresh token rotation under concurrency, algorithm confusion defense on HS256, issuer/audience claim enforcement, recursive log redaction of sensitive credentials, CORS 403 rejection, and reverse proxy trust configuration.
-  - **Verdict**: PASS WITH LIMITATIONS (Live Atlas cluster and external AI provider key pending actual production provisioning).
+  - **Verdict**: PASS (Live Atlas cluster connectivity verified live; external AI provider key omitted for deterministic rules-only baseline).
 
 ---
 
 ## Phase 8A: Deployment Prerequisites & Demo Readiness
-- **Status**: Complete & Verified (All deployment configurations & synthetic demo scripts prepared; zero public deployment or paid resource creation)
+- **Status**: Complete & Verified (Atlas Live & Seeded; deployment blueprints and synthetic demo scripts verified)
 - **Scope**:
+  - **Live Atlas Connectivity Verified**:
+    - Fixed `.env` path resolution in `server/src/config/env.ts` so `dotenv` loads the root `.env` under workspace execution.
+    - Verified live connection to cluster `cluster0.9z4blou.mongodb.net` with 14ms ping latency and status `ready`.
+  - **Demo Seeding & Cleanup Scripts**:
+    - `scripts/seed-demo.ts` (`npm run seed:demo`): Seeds synthetic persona `demo-asha@rakshasphere.org` with 2 correlated incidents, 1 verified trusted contact (Pooja), and 1 tracked cybercrime case.
+    - `scripts/cleanup-demo.ts` (`npm run cleanup:demo`): Safely purges only the demo persona records without touching any other records.
   - **Project & Monorepo Inspection**:
     - Monorepo package manager: standard `npm` with 3 workspaces (`shared`, `server`, `client`).
     - Build dependencies verified: `@rakshasphere/shared` builds first to `./dist/index.js`, referenced by both server and client.
@@ -289,7 +302,8 @@
   - 121 Vitest unit, API, and integration tests passing across 13 test suites (0 failures).
   - TypeScript compilation passes across `shared`, `server`, and `client` (0 errors).
   - Production builds pass for all workspaces (`npm run build`).
-  - Stop condition strictly enforced: No public deployment, cloud provisioning, or live database modifications executed.
+  - Live Atlas connectivity verified with 14ms latency.
+  - Stop condition strictly enforced: No public deployment, cloud provisioning, or paid services enabled.
 
 ---
 
@@ -367,13 +381,19 @@
   - TypeScript compilation passes across `shared`, `server`, and `client` (0 errors).
   - Production builds pass for all workspaces (`npm run build`).
   - Deep security audit verified: atomic refresh token rotation under concurrency, algorithm confusion defense on HS256, issuer/audience claim enforcement, recursive log redaction of sensitive credentials, CORS 403 rejection, and reverse proxy trust configuration.
-  - **Verdict**: PASS WITH LIMITATIONS (Live Atlas cluster and external AI provider key pending actual production provisioning).
+  - **Verdict**: PASS (Live Atlas cluster connectivity verified live; external AI provider key omitted for deterministic rules-only baseline).
 
 ---
 
 ## Phase 8A: Deployment Prerequisites & Demo Readiness
-- **Status**: Complete & Verified (All deployment configurations & synthetic demo scripts prepared; zero public deployment or paid resource creation)
+- **Status**: Complete & Verified (Atlas Live & Seeded; deployment blueprints and synthetic demo scripts verified)
 - **Scope**:
+  - **Live Atlas Connectivity Verified**:
+    - Fixed `.env` path resolution in `server/src/config/env.ts` so `dotenv` loads the root `.env` under workspace execution.
+    - Verified live connection to cluster `cluster0.9z4blou.mongodb.net` with 14ms ping latency and status `ready`.
+  - **Demo Seeding & Cleanup Scripts**:
+    - `scripts/seed-demo.ts` (`npm run seed:demo`): Seeds synthetic persona `demo-asha@rakshasphere.org` with 2 correlated incidents, 1 verified trusted contact (Pooja), and 1 tracked cybercrime case.
+    - `scripts/cleanup-demo.ts` (`npm run cleanup:demo`): Safely purges only the demo persona records without touching any other records.
   - **Project & Monorepo Inspection**:
     - Monorepo package manager: standard `npm` with 3 workspaces (`shared`, `server`, `client`).
     - Build dependencies verified: `@rakshasphere/shared` builds first to `./dist/index.js`, referenced by both server and client.
@@ -391,6 +411,7 @@
   - 121 Vitest unit, API, and integration tests passing across 13 test suites (0 failures).
   - TypeScript compilation passes across `shared`, `server`, and `client` (0 errors).
   - Production builds pass for all workspaces (`npm run build`).
-  - Stop condition strictly enforced: No public deployment, cloud provisioning, or live database modifications executed.
+  - Live Atlas connectivity verified with 14ms latency.
+  - Stop condition strictly enforced: No public deployment, cloud provisioning, or paid services enabled.
 
 

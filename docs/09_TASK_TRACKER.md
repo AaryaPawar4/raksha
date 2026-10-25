@@ -24,8 +24,8 @@ Statuses: Backlog, Ready, In Progress, Review, Done, Blocked. Assign one owner p
 | RS-015D | E2E Integration Test Journey | P0 | AI Agent | Done | 10-step full workflow across all modules + cross-tenant isolation verified |
 | RS-015E | Sensitive Data Audit & Sanitization | P0 | AI Agent | Done | AuditLogger with recursive key redaction across auth, vault, checkin |
 | RS-015F | Frontend Reliability | P1 | AI Agent | Done | ErrorBoundary with recovery UI, offline network banner, session token handling |
-| RS-016 | Synthetic evaluation | P0 | TBD | Backlog | Actual metrics recorded |
-| RS-017 | Demo and backup video | P0 | TBD | Backlog | Three successful runs |
+| RS-016 | Synthetic evaluation & demo seeding | P0 | AI Agent | Done | Seed script runs, demo persona verified on live Atlas (121 tests pass) |
+| RS-017 | Demo and backup video | P0 | TBD | Ready | Three successful runs / ready for demo execution |
 
 ## Phase 0 Log
 - **Date**: 2026-10-24

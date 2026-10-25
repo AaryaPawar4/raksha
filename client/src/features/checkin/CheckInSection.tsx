@@ -19,10 +19,11 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
-import { TrustedContact, CheckIn } from '@rakshasphere/shared';
+import { TrustedContact, CheckIn, EmailProviderStatus } from '@rakshasphere/shared';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/ui/Loading';
+import { useAuth } from '../auth/AuthContext';
 
 const CONSENT_BADGE: Record<string, { label: string; cls: string }> = {
   PENDING:   { label: 'Consent Pending', cls: 'bg-amber-100 text-amber-800' },
@@ -40,13 +41,39 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
 const DELIVERY_BADGE: Record<string, { label: string; cls: string }> = {
   PREPARED:      { label: 'Prepared (not sent)',                 cls: 'bg-amber-50 text-amber-700' },
   OPENED_IN_APP: { label: 'Opened in app (delivery unconfirmed)', cls: 'bg-blue-50 text-blue-700' },
-  CONFIRMED:     { label: 'Confirmed (external provider verified)', cls: 'bg-emerald-50 text-emerald-700' },
+  CONFIRMED:     { label: 'Confirmed by User (manual handoff)',  cls: 'bg-emerald-50 text-emerald-700' },
+};
+
+const EMAIL_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  PENDING:              { label: 'Email: Pending Dispatch', cls: 'bg-amber-100 text-amber-800' },
+  ACCEPTED_BY_PROVIDER: { label: 'Email: Accepted by Provider (Unconfirmed Read)', cls: 'bg-blue-100 text-blue-800' },
+  DELIVERED:            { label: 'Email: Provider Delivered', cls: 'bg-emerald-100 text-emerald-800' },
+  FAILED:               { label: 'Email: Delivery Failed', cls: 'bg-rose-100 text-rose-800' },
+  UNAVAILABLE:          { label: 'Email: Provider Unavailable', cls: 'bg-slate-100 text-slate-700' },
 };
 
 type Tab = 'contacts' | 'checkin';
 
 export const CheckInSection: React.FC = () => {
+  const { user, refreshUser } = useAuth();
   const [tab, setTab] = useState<Tab>('contacts');
+
+  // Provider status state
+  const [providerStatus, setProviderStatus] = useState<EmailProviderStatus | null>(null);
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null);
+  const [verifyTokenInput, setVerifyTokenInput] = useState('');
+  const [showTokenConfirm, setShowTokenConfirm] = useState(false);
+  const [confirmingToken, setConfirmingToken] = useState(false);
+
+  // Email check-in flow state
+  const [sendChannel, setSendChannel] = useState<'MANUAL_APP' | 'EMAIL'>('MANUAL_APP');
+  const [emailRecipientType, setEmailRecipientType] = useState<'SELF' | 'TRUSTED_CONTACT'>('SELF');
+  const [emailContactId, setEmailContactId] = useState('');
+  const [emailMessage, setEmailMessage] = useState('I am safe. This is an automated email check-in sent via RakshaSphere.');
+  const [sendingEmailCheckIn, setSendingEmailCheckIn] = useState(false);
+  const [emailCheckInError, setEmailCheckInError] = useState<string | null>(null);
+  const [emailCheckInSuccess, setEmailCheckInSuccess] = useState<string | null>(null);
 
   // Contacts state
   const [contacts, setContacts] = useState<TrustedContact[]>([]);
@@ -104,8 +131,84 @@ export const CheckInSection: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { fetchContacts(); }, [fetchContacts]);
+  const fetchProviderStatus = useCallback(async () => {
+    try {
+      const res = await apiClient.checkIns.getEmailProviderStatus();
+      setProviderStatus(res);
+    } catch {
+      setProviderStatus({ isConfigured: false, providerName: 'none', fromAddress: '' });
+    }
+  }, []);
+
+  useEffect(() => { fetchContacts(); fetchProviderStatus(); }, [fetchContacts, fetchProviderStatus]);
   useEffect(() => { if (tab === 'checkin') fetchCheckIns(); }, [tab, fetchCheckIns]);
+
+  const handleRequestVerification = async () => {
+    setVerifyingEmail(true);
+    setVerifyNotice(null);
+    try {
+      const res = await apiClient.auth.requestEmailVerification();
+      if (res.alreadyVerified) {
+        setVerifyNotice('Your email is already verified.');
+        await refreshUser();
+      } else {
+        setVerifyNotice(res.message + (res.token ? ` (Test token: ${res.token})` : ''));
+        setShowTokenConfirm(true);
+      }
+    } catch (err) {
+      setVerifyNotice(err instanceof Error ? err.message : 'Failed to request email verification.');
+    } finally {
+      setVerifyingEmail(false);
+    }
+  };
+
+  const handleConfirmVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verifyTokenInput.trim()) return;
+    setConfirmingToken(true);
+    setVerifyNotice(null);
+    try {
+      await apiClient.auth.confirmEmailVerification({ token: verifyTokenInput.trim() });
+      setVerifyNotice('Email verified successfully! You can now send automated check-ins to your registered email.');
+      setShowTokenConfirm(false);
+      setVerifyTokenInput('');
+      await refreshUser();
+    } catch (err) {
+      setVerifyNotice(err instanceof Error ? err.message : 'Failed to verify token.');
+    } finally {
+      setConfirmingToken(false);
+    }
+  };
+
+  const handleSendEmailCheckIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailMessage.trim()) return;
+    if (emailRecipientType === 'TRUSTED_CONTACT' && !emailContactId) {
+      setEmailCheckInError('Please select a consented contact with an email address.');
+      return;
+    }
+
+    setSendingEmailCheckIn(true);
+    setEmailCheckInError(null);
+    setEmailCheckInSuccess(null);
+    try {
+      const clientNonce = 'client-nonce-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
+      const res = await apiClient.checkIns.sendEmail({
+        recipientType: emailRecipientType,
+        contactId: emailRecipientType === 'TRUSTED_CONTACT' ? emailContactId : undefined,
+        message: emailMessage.trim(),
+        clientNonce,
+      });
+
+      setEmailCheckInSuccess(`Email check-in successfully submitted to provider (Status: ${res.emailDeliveryStatus || 'ACCEPTED_BY_PROVIDER'}).`);
+      setShowCheckInForm(false);
+      await fetchCheckIns();
+    } catch (err) {
+      setEmailCheckInError(err instanceof Error ? err.message : 'Failed to send email check-in.');
+    } finally {
+      setSendingEmailCheckIn(false);
+    }
+  };
 
   const handleCreateContact = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -444,6 +547,80 @@ export const CheckInSection: React.FC = () => {
               </div>
             )}
 
+            {/* Email Provider & Verification Status Banner */}
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-sky-600" />
+                  <span className="text-xs font-bold text-slate-800">Transactional Email Service</span>
+                  {providerStatus?.isConfigured ? (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      Configured ({providerStatus.providerName})
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                      Not Configured (Disabled)
+                    </span>
+                  )}
+                </div>
+
+                {user && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-600">
+                      My Email: <strong className="text-slate-800">{user.email}</strong>
+                    </span>
+                    {user.isEmailVerified ? (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Verified
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                          Unverified
+                        </span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={handleRequestVerification}
+                          disabled={verifyingEmail}
+                          className="text-[11px] py-0.5 px-2 h-auto text-sky-700 border-sky-200"
+                        >
+                          {verifyingEmail ? 'Sending...' : 'Verify Email'}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {verifyNotice && (
+                <div className="bg-sky-50 border border-sky-200 rounded-lg p-2 text-xs text-sky-800">
+                  {verifyNotice}
+                </div>
+              )}
+
+              {showTokenConfirm && (
+                <form onSubmit={handleConfirmVerification} className="flex gap-2 items-center pt-1">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter verification token"
+                    value={verifyTokenInput}
+                    onChange={(e) => setVerifyTokenInput(e.target.value)}
+                    className="flex-1 text-xs border border-slate-300 rounded px-2 py-1"
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={confirmingToken || !verifyTokenInput.trim()}
+                    className="text-xs py-1 px-3 bg-sky-600 hover:bg-sky-700"
+                  >
+                    {confirmingToken ? 'Confirming...' : 'Confirm'}
+                  </Button>
+                </form>
+              )}
+            </div>
+
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Safety Check-Ins</h3>
               <div className="flex gap-2">
@@ -461,123 +638,272 @@ export const CheckInSection: React.FC = () => {
             {/* New Check-In Form */}
             {showCheckInForm && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
-                <h4 className="text-xs font-bold text-slate-800">Create a Safety Check-In</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-800">Create a Safety Check-In</h4>
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setSendChannel('MANUAL_APP')}
+                      className={`px-3 py-1 font-medium transition-colors ${
+                        sendChannel === 'MANUAL_APP' ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      WhatsApp / SMS Handoff
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSendChannel('EMAIL')}
+                      className={`px-3 py-1 font-medium transition-colors ${
+                        sendChannel === 'EMAIL' ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Automated Email Check-In
+                    </button>
+                  </div>
+                </div>
 
-                {contacts.filter(c => c.consentStatus === 'CONSENTED').length === 0 && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-                    <p className="font-semibold mb-0.5">No Consented Contacts</p>
-                    <p>Go to the <button type="button" className="underline" onClick={() => setTab('contacts')}>Trusted Contacts</button> tab to add contacts and mark them as consented before creating a check-in.</p>
+                {sendChannel === 'EMAIL' && (
+                  <div className="space-y-3 text-xs">
+                    {emailCheckInError && (
+                      <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 text-xs text-rose-700 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0" /><span>{emailCheckInError}</span>
+                      </div>
+                    )}
+                    {emailCheckInSuccess && (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs text-emerald-700 flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 flex-shrink-0" /><span>{emailCheckInSuccess}</span>
+                      </div>
+                    )}
+
+                    {!providerStatus?.isConfigured && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                        <p className="font-semibold mb-0.5">Email Provider Unavailable</p>
+                        <p>No email provider credentials are configured on the server. To enable automated email check-ins, configure SMTP settings in the server .env file.</p>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleSendEmailCheckIn} className="space-y-3">
+                      <div>
+                        <label className="block text-slate-600 font-medium mb-1">Email Recipient *</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="recipientType"
+                              value="SELF"
+                              checked={emailRecipientType === 'SELF'}
+                              onChange={() => setEmailRecipientType('SELF')}
+                              className="accent-sky-600"
+                            />
+                            <span>My Registered Email ({user?.email})</span>
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="recipientType"
+                              value="TRUSTED_CONTACT"
+                              checked={emailRecipientType === 'TRUSTED_CONTACT'}
+                              onChange={() => setEmailRecipientType('TRUSTED_CONTACT')}
+                              className="accent-sky-600"
+                            />
+                            <span>Consented Trusted Contact</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {emailRecipientType === 'SELF' && !user?.isEmailVerified && (
+                        <div className="bg-rose-50 border border-rose-200 rounded p-2 text-xs text-rose-700">
+                          Your email is unverified. You must verify your email address above before sending check-ins to yourself.
+                        </div>
+                      )}
+
+                      {emailRecipientType === 'TRUSTED_CONTACT' && (
+                        <div>
+                          <label className="block text-slate-600 font-medium mb-1">Select Consented Contact *</label>
+                          <select
+                            required
+                            value={emailContactId}
+                            onChange={(e) => setEmailContactId(e.target.value)}
+                            className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500"
+                          >
+                            <option value="">Select a contact...</option>
+                            {contacts
+                              .filter((c) => c.consentStatus === 'CONSENTED' && c.email)
+                              .map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name} ({c.email})
+                                </option>
+                              ))}
+                          </select>
+                          {contacts.filter((c) => c.consentStatus === 'CONSENTED' && c.email).length === 0 && (
+                            <p className="text-[11px] text-amber-700 mt-1">
+                              No consented contacts with an email address found. Add contact email in the Trusted Contacts tab.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-slate-600 font-medium mb-1">Message (Max 1000 characters) *</label>
+                        <textarea
+                          rows={3}
+                          required
+                          value={emailMessage}
+                          onChange={(e) => setEmailMessage(e.target.value)}
+                          maxLength={1000}
+                          className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500"
+                          placeholder="I have arrived safely at my destination."
+                        />
+                      </div>
+
+                      <div className="bg-blue-50 border border-blue-200 rounded p-2.5 text-[11px] text-blue-800 leading-relaxed">
+                        <p className="font-semibold mb-0.5">Automated Transactional Email Notice</p>
+                        <p>This message will be dispatched directly through the configured email provider. Acceptance by the provider confirms relay queueing, not that the recipient has read the email.</p>
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="secondary" onClick={() => setShowCheckInForm(false)} className="text-xs py-1 px-3">
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          variant="primary"
+                          disabled={
+                            sendingEmailCheckIn ||
+                            !providerStatus?.isConfigured ||
+                            (emailRecipientType === 'SELF' && !user?.isEmailVerified) ||
+                            (emailRecipientType === 'TRUSTED_CONTACT' && !emailContactId) ||
+                            !emailMessage.trim()
+                          }
+                          className="text-xs py-1 px-3 bg-sky-600 hover:bg-sky-700 flex items-center gap-1.5"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          {sendingEmailCheckIn ? 'Sending Email...' : 'Send Automated Email'}
+                        </Button>
+                      </div>
+                    </form>
                   </div>
                 )}
 
-                <form onSubmit={handleCreateCheckIn} className="space-y-3 text-xs">
+                {sendChannel === 'MANUAL_APP' && (
                   <div>
-                    <label className="block text-slate-600 font-medium mb-1">Send To (Consented Contact) *</label>
-                    <select required value={ciContactId} onChange={e => setCiContactId(e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500">
-                      <option value="">Select a consented contact…</option>
-                      {contacts.filter(c => c.consentStatus === 'CONSENTED').map(c => (
-                        <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ''}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-600 font-medium mb-1">Message *</label>
-                    <textarea rows={3} required value={ciMessage} onChange={e => setCiMessage(e.target.value)} maxLength={2000}
-                      className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500"
-                      placeholder="I am safe. Expected to arrive by 10pm." />
-                    <p className="text-[10px] text-slate-400 mt-0.5">This message will be prepared and opened in WhatsApp or shown for manual copy. RakshaSphere does not transmit it directly.</p>
-                  </div>
-
-                  {/* Location sharing — explicit opt-in only */}
-                  <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-3.5 h-3.5 text-sky-600" />
-                        <span className="text-xs font-semibold text-slate-800">Share Approximate Location (Optional)</span>
-                      </div>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={ciLocationEnabled}
-                          onChange={e => {
-                            setCiLocationEnabled(e.target.checked);
-                            if (!e.target.checked) { setCiLat(null); setCiLon(null); setLocationError(null); }
-                          }}
-                          className="w-3.5 h-3.5 accent-sky-600" />
-                        <span className="text-[11px] text-slate-600">Include location</span>
-                      </label>
-                    </div>
-
-                    {ciLocationEnabled && (
-                      <div className="space-y-2 pl-1">
-                        <div className="bg-sky-50 border border-sky-100 rounded p-2 text-[11px] text-sky-800 leading-relaxed">
-                          <p className="font-semibold mb-0.5">What will be shared:</p>
-                          <ul className="list-disc list-inside space-y-0.5 text-sky-700">
-                            <li>Approximate coordinates (rounded to ~11m precision)</li>
-                            <li>A Google Maps link appended to your message</li>
-                            <li>Sent only to: <strong>{selectedContact?.name || 'selected contact'}</strong></li>
-                          </ul>
-                          <p className="mt-1 text-sky-600">Your location is <strong>not</strong> stored by RakshaSphere beyond this check-in record.</p>
-                        </div>
-
-                        {ciLat !== null && ciLon !== null ? (
-                          <div className="flex items-center gap-2 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
-                            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span>Location captured: {ciLat}, {ciLon}</span>
-                            <button type="button" onClick={handleClearLocation}
-                              className="ml-auto text-slate-500 hover:text-rose-600 flex items-center gap-1">
-                              <MapPinOff className="w-3.5 h-3.5" />Clear
-                            </button>
-                          </div>
-                        ) : (
-                          <Button type="button" variant="secondary" onClick={handleGetLocation} disabled={gettingLocation}
-                            className="text-xs py-1 px-3 h-auto flex items-center gap-1.5 border-sky-200 text-sky-700">
-                            <MapPin className="w-3.5 h-3.5" />
-                            {gettingLocation ? 'Getting location…' : 'Get My Current Location'}
-                          </Button>
-                        )}
-
-                        {locationError && (
-                          <p className="text-[11px] text-rose-600 flex items-center gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />{locationError}
-                          </p>
-                        )}
+                    {contacts.filter(c => c.consentStatus === 'CONSENTED').length === 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 mb-3">
+                        <p className="font-semibold mb-0.5">No Consented Contacts</p>
+                        <p>Go to the <button type="button" className="underline" onClick={() => setTab('contacts')}>Trusted Contacts</button> tab to add contacts and mark them as consented before creating a check-in.</p>
                       </div>
                     )}
-                  </div>
 
-                  <div>
-                    <label className="block text-slate-600 font-medium mb-1">Expected Safe Arrival Time (Optional)</label>
-                    <input type="datetime-local" value={ciDueAt} onChange={e => setCiDueAt(e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500" />
-                    <p className="text-[10px] text-slate-400 mt-0.5">No automated alert will be sent. This is a reference time stored locally for your records.</p>
-                  </div>
+                    <form onSubmit={handleCreateCheckIn} className="space-y-3 text-xs">
+                      <div>
+                        <label className="block text-slate-600 font-medium mb-1">Send To (Consented Contact) *</label>
+                        <select required value={ciContactId} onChange={e => setCiContactId(e.target.value)}
+                          className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500">
+                          <option value="">Select a consented contact…</option>
+                          {contacts.filter(c => c.consentStatus === 'CONSENTED').map(c => (
+                            <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ''}</option>
+                          ))}
+                        </select>
+                      </div>
 
-                  {/* Message preview before sending */}
-                  {ciContactId && ciMessage && (
-                    <div className="bg-slate-800 rounded-lg p-3 text-[11px] text-slate-100 font-mono space-y-1">
-                      <p className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Message Preview (will be opened in external app):</p>
-                      <p className="leading-relaxed whitespace-pre-wrap">{ciMessage}{ciLocationEnabled && ciLat !== null ? `\n\nMy approximate location: https://maps.google.com/?q=${ciLat},${ciLon}` : ''}</p>
-                      {selectedContact?.phone && (
-                        <p className="text-sky-400 pt-1 flex items-center gap-1"><ExternalLink className="w-3 h-3" />Will open WhatsApp for {selectedContact.name} ({selectedContact.phone})</p>
+                      <div>
+                        <label className="block text-slate-600 font-medium mb-1">Message *</label>
+                        <textarea rows={3} required value={ciMessage} onChange={e => setCiMessage(e.target.value)} maxLength={2000}
+                          className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500"
+                          placeholder="I am safe. Expected to arrive by 10pm." />
+                        <p className="text-[10px] text-slate-400 mt-0.5">This message will be prepared and opened in WhatsApp or shown for manual copy. RakshaSphere does not transmit it directly.</p>
+                      </div>
+
+                      {/* Location sharing — explicit opt-in only */}
+                      <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-3.5 h-3.5 text-sky-600" />
+                            <span className="text-xs font-semibold text-slate-800">Share Approximate Location (Optional)</span>
+                          </div>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={ciLocationEnabled}
+                              onChange={e => {
+                                setCiLocationEnabled(e.target.checked);
+                                if (!e.target.checked) { setCiLat(null); setCiLon(null); setLocationError(null); }
+                              }}
+                              className="w-3.5 h-3.5 accent-sky-600" />
+                            <span className="text-[11px] text-slate-600">Include location</span>
+                          </label>
+                        </div>
+
+                        {ciLocationEnabled && (
+                          <div className="space-y-2 pl-1">
+                            <div className="bg-sky-50 border border-sky-100 rounded p-2 text-[11px] text-sky-800 leading-relaxed">
+                              <p className="font-semibold mb-0.5">What will be shared:</p>
+                              <ul className="list-disc list-inside space-y-0.5 text-sky-700">
+                                <li>Approximate coordinates (rounded to ~11m precision)</li>
+                                <li>A Google Maps link appended to your message</li>
+                                <li>Sent only to: <strong>{selectedContact?.name || 'selected contact'}</strong></li>
+                              </ul>
+                              <p className="mt-1 text-sky-600">Your location is <strong>not</strong> stored by RakshaSphere beyond this check-in record.</p>
+                            </div>
+
+                            {ciLat !== null && ciLon !== null ? (
+                              <div className="flex items-center gap-2 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
+                                <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span>Location captured: {ciLat}, {ciLon}</span>
+                                <button type="button" onClick={handleClearLocation}
+                                  className="ml-auto text-slate-500 hover:text-rose-600 flex items-center gap-1">
+                                  <MapPinOff className="w-3.5 h-3.5" />Clear
+                                </button>
+                              </div>
+                            ) : (
+                              <Button type="button" variant="secondary" onClick={handleGetLocation} disabled={gettingLocation}
+                                className="text-xs py-1 px-3 h-auto flex items-center gap-1.5 border-sky-200 text-sky-700">
+                                <MapPin className="w-3.5 h-3.5" />
+                                {gettingLocation ? 'Getting location…' : 'Get My Current Location'}
+                              </Button>
+                            )}
+
+                            {locationError && (
+                              <p className="text-[11px] text-rose-600 flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />{locationError}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-600 font-medium mb-1">Expected Safe Arrival Time (Optional)</label>
+                        <input type="datetime-local" value={ciDueAt} onChange={e => setCiDueAt(e.target.value)}
+                          className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500" />
+                        <p className="text-[10px] text-slate-400 mt-0.5">No automated alert will be sent. This is a reference time stored locally for your records.</p>
+                      </div>
+
+                      {/* Message preview before sending */}
+                      {ciContactId && ciMessage && (
+                        <div className="bg-slate-800 rounded-lg p-3 text-[11px] text-slate-100 font-mono space-y-1">
+                          <p className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Message Preview (will be opened in external app):</p>
+                          <p className="leading-relaxed whitespace-pre-wrap">{ciMessage}{ciLocationEnabled && ciLat !== null ? `\n\nMy approximate location: https://maps.google.com/?q=${ciLat},${ciLon}` : ''}</p>
+                          {selectedContact?.phone && (
+                            <p className="text-sky-400 pt-1 flex items-center gap-1"><ExternalLink className="w-3 h-3" />Will open WhatsApp for {selectedContact.name} ({selectedContact.phone})</p>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
 
-                  <div className="bg-amber-50 border border-amber-200 rounded p-2.5 text-[11px] text-amber-800 leading-relaxed">
-                    <p className="font-semibold mb-0.5">Delivery Disclaimer</p>
-                    <p>Clicking "Prepare & Open" opens the WhatsApp or SMS app with a pre-filled message. RakshaSphere cannot confirm delivery. Delivery is your responsibility through the external messaging app.</p>
-                  </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded p-2.5 text-[11px] text-amber-800 leading-relaxed">
+                        <p className="font-semibold mb-0.5">Delivery Disclaimer</p>
+                        <p>Clicking "Prepare & Open" opens the WhatsApp or SMS app with a pre-filled message. RakshaSphere cannot confirm delivery. Delivery is your responsibility through the external messaging app.</p>
+                      </div>
 
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="secondary" onClick={() => setShowCheckInForm(false)} className="text-xs py-1 px-3">Cancel</Button>
-                    <Button type="submit" variant="primary"
-                      disabled={savingCheckIn || !ciContactId || !ciMessage.trim() || (ciLocationEnabled && (ciLat === null || ciLon === null))}
-                      className="text-xs py-1 px-3 bg-sky-600 hover:bg-sky-700 flex items-center gap-1.5">
-                      <Send className="w-3.5 h-3.5" />{savingCheckIn ? 'Preparing…' : 'Prepare & Open →'}
-                    </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="secondary" onClick={() => setShowCheckInForm(false)} className="text-xs py-1 px-3">Cancel</Button>
+                        <Button type="submit" variant="primary"
+                          disabled={savingCheckIn || !ciContactId || !ciMessage.trim() || (ciLocationEnabled && (ciLat === null || ciLon === null))}
+                          className="text-xs py-1 px-3 bg-sky-600 hover:bg-sky-700 flex items-center gap-1.5">
+                          <Send className="w-3.5 h-3.5" />{savingCheckIn ? 'Preparing…' : 'Prepare & Open →'}
+                        </Button>
+                      </div>
+                    </form>
                   </div>
-                </form>
+                )}
               </div>
             )}
 
@@ -593,17 +919,27 @@ export const CheckInSection: React.FC = () => {
                 {checkIns.map(ci => {
                   const sBadge = STATUS_BADGE[ci.status] || STATUS_BADGE.ACTIVE;
                   const dBadge = DELIVERY_BADGE[ci.deliveryState] || DELIVERY_BADGE.PREPARED;
+                  const emailBadge = ci.emailDeliveryStatus ? EMAIL_STATUS_BADGE[ci.emailDeliveryStatus] : null;
                   return (
                     <div key={ci.id} className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-slate-800">To: {ci.contactName}</span>
+                            <span className="text-xs font-bold text-slate-800">
+                              {ci.channel === 'AUTOMATED_EMAIL' ? `Email to: ${ci.contactName}` : `To: ${ci.contactName}`}
+                            </span>
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${sBadge.cls}`}>{sBadge.label}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full border ${dBadge.cls}`}>{dBadge.label}</span>
+                            {emailBadge ? (
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full border ${emailBadge.cls}`}>{emailBadge.label}</span>
+                            ) : (
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full border ${dBadge.cls}`}>{dBadge.label}</span>
+                            )}
                             {ci.locationSharingEnabled && <span className="text-[10px] text-sky-700 flex items-center gap-0.5"><MapPin className="w-3 h-3" />Location included</span>}
                           </div>
                           <p className="text-[11px] text-slate-500 line-clamp-1">{ci.message}</p>
+                          {ci.recipientEmail && (
+                            <p className="text-[10px] text-slate-400">Recipient Email: {ci.recipientEmail}</p>
+                          )}
                         </div>
 
                         {ci.status === 'ACTIVE' && (

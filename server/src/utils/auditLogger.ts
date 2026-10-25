@@ -10,7 +10,8 @@ export type AuditEventType =
   | 'VAULT_DELETE'
   | 'CHECKIN_CREATED'
   | 'CHECKIN_COMPLETED'
-  | 'CHECKIN_CANCELLED';
+  | 'CHECKIN_CANCELLED'
+  | 'INCIDENT_DELETED';
 
 export interface AuditEventPayload {
   eventType: AuditEventType;

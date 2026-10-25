@@ -137,4 +137,40 @@ export class UserRepository {
     );
     return result.modifiedCount > 0;
   }
+
+  public static async setEmailVerificationToken(
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date
+  ): Promise<boolean> {
+    if (!Types.ObjectId.isValid(userId)) return false;
+    const result = await UserModel.updateOne(
+      { _id: new Types.ObjectId(userId) },
+      {
+        $set: {
+          emailVerificationTokenHash: tokenHash,
+          emailVerificationExpiresAt: expiresAt,
+        },
+      }
+    );
+    return result.modifiedCount === 1;
+  }
+
+  public static async markEmailVerified(userId: string): Promise<User | null> {
+    if (!Types.ObjectId.isValid(userId)) return null;
+    const doc = await UserModel.findByIdAndUpdate(
+      new Types.ObjectId(userId),
+      {
+        $set: {
+          isEmailVerified: true,
+        },
+        $unset: {
+          emailVerificationTokenHash: 1,
+          emailVerificationExpiresAt: 1,
+        },
+      },
+      { new: true }
+    );
+    return doc ? userDocToUser(doc) : null;
+  }
 }

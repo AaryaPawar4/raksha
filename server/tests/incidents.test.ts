@@ -249,3 +249,179 @@ describe('GET /api/v1/incidents/:id', () => {
     expect(res.body.error.code).toBe('NOT_FOUND');
   });
 });
+
+describe('DELETE /api/v1/incidents/:id', () => {
+  it('successfully deletes an incident owned by the caller', async () => {
+    const createRes = await request(app)
+      .post('/api/v1/incidents')
+      .set('x-demo-user-id', TEST_USER_A)
+      .send(validIncidentPayload);
+
+    const incidentId = createRes.body.data.id;
+
+    const delRes = await request(app)
+      .delete(`/api/v1/incidents/${incidentId}`)
+      .set('x-demo-user-id', TEST_USER_A);
+
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.success).toBe(true);
+    expect(delRes.body.data.deleted).toBe(true);
+    expect(delRes.body.data.id).toBe(incidentId);
+
+    // Verify incident is no longer retrievable
+    const getRes = await request(app)
+      .get(`/api/v1/incidents/${incidentId}`)
+      .set('x-demo-user-id', TEST_USER_A);
+    expect(getRes.status).toBe(404);
+  });
+
+  it('returns 404 when attempting to delete a nonexistent incident', async () => {
+    const fakeId = new mongoose.Types.ObjectId().toString();
+
+    const res = await request(app)
+      .delete(`/api/v1/incidents/${fakeId}`)
+      .set('x-demo-user-id', TEST_USER_A);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 404 for an invalid malformed ID without leaking internal errors', async () => {
+    const res = await request(app)
+      .delete('/api/v1/incidents/invalid-hex-id')
+      .set('x-demo-user-id', TEST_USER_A);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+    expect(JSON.stringify(res.body)).not.toContain('CastError');
+  });
+
+  it('user B cannot delete user A\'s incident (strict cross-user authorization)', async () => {
+    const createRes = await request(app)
+      .post('/api/v1/incidents')
+      .set('x-demo-user-id', TEST_USER_A)
+      .send(validIncidentPayload);
+
+    const incidentId = createRes.body.data.id;
+
+    // User B tries to delete User A's incident
+    const delRes = await request(app)
+      .delete(`/api/v1/incidents/${incidentId}`)
+      .set('x-demo-user-id', TEST_USER_B);
+
+    expect(delRes.status).toBe(404);
+    expect(delRes.body.error.code).toBe('NOT_FOUND');
+
+    // Verify incident is still intact for User A
+    const getRes = await request(app)
+      .get(`/api/v1/incidents/${incidentId}`)
+      .set('x-demo-user-id', TEST_USER_A);
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.data.id).toBe(incidentId);
+  });
+
+  it('prunes direct ThreatLink edges without breaking unrelated links, and detaches vault evidence', async () => {
+    // Create 3 incidents for User A
+    const inc1 = (await request(app)
+      .post('/api/v1/incidents')
+      .set('x-demo-user-id', TEST_USER_A)
+      .send({ ...validIncidentPayload, title: 'Incident 1' })).body.data.id;
+
+    const inc2 = (await request(app)
+      .post('/api/v1/incidents')
+      .set('x-demo-user-id', TEST_USER_A)
+      .send({ ...validIncidentPayload, title: 'Incident 2' })).body.data.id;
+
+    const inc3 = (await request(app)
+      .post('/api/v1/incidents')
+      .set('x-demo-user-id', TEST_USER_A)
+      .send({ ...validIncidentPayload, title: 'Incident 3' })).body.data.id;
+
+    // Create a ThreatLink between 1 and 2, and another between 2 and 3
+    if (mongoose.connection.db) {
+      await mongoose.connection.db.collection('threatlinks').insertMany([
+        {
+          ownerId: TEST_USER_A,
+          incidentAId: inc1,
+          incidentBId: inc2,
+          canonicalPair: `${inc1}:${inc2}`,
+          matchType: 'EXACT_IDENTIFIER',
+          matchedIdentifierType: 'USERNAME',
+          matchedValueMasked: '@threat_actor_***',
+          strength: 'HIGH',
+          explanation: 'Shared handle',
+          warning: 'Warning',
+          userDisposition: 'PENDING',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          ownerId: TEST_USER_A,
+          incidentAId: inc2,
+          incidentBId: inc3,
+          canonicalPair: `${inc2}:${inc3}`,
+          matchType: 'EXACT_IDENTIFIER',
+          matchedIdentifierType: 'USERNAME',
+          matchedValueMasked: '@threat_actor_***',
+          strength: 'HIGH',
+          explanation: 'Shared handle',
+          warning: 'Warning',
+          userDisposition: 'PENDING',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      // Insert an evidence item attached to inc1
+      await mongoose.connection.db.collection('evidences').insertOne({
+        ownerId: TEST_USER_A,
+        incidentId: inc1,
+        filename: 'screenshot.png',
+        mimeType: 'image/png',
+        size: 1024,
+        sha256: 'a'.repeat(64),
+        ciphertextBase64: 'fake-cipher',
+        encryptionMetadata: {
+          algorithm: 'AES-GCM',
+          keyDerivation: 'PBKDF2',
+          pbkdf2Iterations: 100000,
+          ivHex: 'b'.repeat(24),
+          saltHex: 'c'.repeat(32),
+          version: '1.0',
+        },
+        serverReceivedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    // Delete Incident 1
+    const delRes = await request(app)
+      .delete(`/api/v1/incidents/${inc1}`)
+      .set('x-demo-user-id', TEST_USER_A);
+
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.data.deleted).toBe(true);
+    expect(delRes.body.data.removedLinksCount).toBe(1);
+    expect(delRes.body.data.retainedEvidenceCount).toBe(1);
+
+    // Verify ThreatLink between 1 and 2 is gone, but link between 2 and 3 remains!
+    if (mongoose.connection.db) {
+      const remainingLinks = await mongoose.connection.db
+        .collection('threatlinks')
+        .find({ ownerId: TEST_USER_A })
+        .toArray();
+      expect(remainingLinks.length).toBe(1);
+      expect(remainingLinks[0].incidentAId).toBe(inc2);
+      expect(remainingLinks[0].incidentBId).toBe(inc3);
+
+      // Verify evidence item is retained and unlinked, NOT deleted!
+      const evidence = await mongoose.connection.db
+        .collection('evidences')
+        .findOne({ ownerId: TEST_USER_A });
+      expect(evidence).not.toBeNull();
+      expect(evidence?.incidentId).toBe('unlinked');
+      expect(evidence?.filename).toBe('screenshot.png');
+    }
+  });
+});

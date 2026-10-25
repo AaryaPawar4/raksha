@@ -6,6 +6,15 @@ export type CheckInStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'OVERDUE';
 
 export type DeliveryState = 'PREPARED' | 'OPENED_IN_APP' | 'CONFIRMED';
 
+export type EmailDeliveryStatus =
+  | 'PENDING'
+  | 'ACCEPTED_BY_PROVIDER'
+  | 'DELIVERED'
+  | 'FAILED'
+  | 'UNAVAILABLE';
+
+export type CheckInChannel = 'MANUAL_APP_INTENT' | 'AUTOMATED_EMAIL';
+
 // ─── Trusted Contact ─────────────────────────────────────────────────────────
 
 export interface TrustedContact {
@@ -50,6 +59,9 @@ export interface CheckIn {
   cancelledAt?: string;
   deliveryState: DeliveryState;
   deliveryDisclaimer: string;
+  channel?: CheckInChannel;
+  emailDeliveryStatus?: EmailDeliveryStatus;
+  recipientEmail?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,4 +73,17 @@ export interface CreateCheckInDTO {
   latitudeSnapshot?: number;
   longitudeSnapshot?: number;
   dueAt?: string;
+}
+
+export interface SendEmailCheckInDTO {
+  recipientType: 'SELF' | 'TRUSTED_CONTACT';
+  contactId?: string;
+  message: string;
+  clientNonce?: string;
+}
+
+export interface EmailProviderStatus {
+  isConfigured: boolean;
+  providerName: string;
+  fromAddress: string;
 }

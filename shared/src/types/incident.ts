@@ -61,3 +61,12 @@ export interface PaginatedResult<T> {
   limit: number;
   totalPages: number;
 }
+
+export interface DeleteIncidentResult {
+  deleted: boolean;
+  id: string;
+  removedLinksCount: number;
+  retainedEvidenceCount: number;
+  policy: string;
+}
+
